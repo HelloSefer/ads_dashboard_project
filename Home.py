@@ -12,7 +12,8 @@ def get_db_connection():
         host=os.getenv("DB_HOST"),
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME")
+        database=os.getenv("DB_NAME"),
+        port=int(os.getenv("DB_PORT", 3306))  # default 3306 if not found
     )
 
 # ✅ Brevo API setup
@@ -92,7 +93,7 @@ def update_user_password(email, new_password):
 
 
 st.set_page_config(page_title="ANA9A STORE", initial_sidebar_state="collapsed")
-st.markdown('<div class="title-fire">🔥 ANA9A STORE 🔥</div>', unsafe_allow_html=True)
+st.markdown('<div class="title-fire">🔥EcoDashboard🔥</div>', unsafe_allow_html=True)
 
 tab_login, tab_signup = st.tabs(["Login", "Create New Account"])
 

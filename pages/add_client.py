@@ -15,14 +15,17 @@ if "username" not in st.session_state:
 
 st.title("Manage Clients")
 
+def get_env_var(key):
+    return st.secrets[key] if key in st.secrets else os.getenv(key)
+
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        port=int(os.getenv("DB_PORT")),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME"),
-        ssl_ca=r"C:\ads_dashboard_project\ca.pem",  
+        host=get_env_var("DB_HOST"),
+        port=int(get_env_var("DB_PORT")),
+        user=get_env_var("DB_USER"),
+        password=get_env_var("DB_PASSWORD"),
+        database=get_env_var("DB_NAME"),
+        ssl_ca="certs/ca.pem",  # تأكد وجود الملف في هذا المسار داخل مشروعك
         ssl_verify_cert=True
     )
 
@@ -204,6 +207,7 @@ if not client_deleted:
                 </script>
                 """
                 st.markdown(balloons_html, unsafe_allow_html=True)
+
 
 
 

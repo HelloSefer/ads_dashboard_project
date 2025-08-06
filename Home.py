@@ -4,28 +4,30 @@ import os
 import mysql.connector
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
-from dotenv import load_dotenv 
 
-load_dotenv()
+# دالة لجلب المتغيرات من secrets أو من البيئة المحلية
+def get_env_var(key):
+    return st.secrets[key] if key in st.secrets else os.getenv(key)
+
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        port=int(os.getenv("DB_PORT")),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME"),
-        ssl_ca=r"C:\ads_dashboard_project\ca.pem",  
+        host=get_env_var("DB_HOST"),
+        port=int(get_env_var("DB_PORT")),
+        user=get_env_var("DB_USER"),
+        password=get_env_var("DB_PASSWORD"),
+        database=get_env_var("DB_NAME"),
+        ssl_ca="certs/ca.pem",     # المسار النسبي لملف الشهادة داخل المشروع
         ssl_verify_cert=True
     )
-# ✅ Brevo API setup
-BREVO_API_KEY = os.getenv("BREVO_API_KEY")  
+
+# إعداد Brevo API
+BREVO_API_KEY = get_env_var("BREVO_API_KEY")
 SENDER_EMAIL = "oussamabillionaire599@gmail.com"
 SENDER_NAME = "ANA9A STORE"
 
 configuration = sib_api_v3_sdk.Configuration()
 configuration.api_key['api-key'] = BREVO_API_KEY
 api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
-
 
 def send_verification_code(email, code):
     send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
@@ -40,7 +42,6 @@ def send_verification_code(email, code):
     except ApiException as e:
         st.error(f"Error while sending code: {e}")
         return False
-
 
 def load_users():
     conn = get_db_connection()
@@ -233,6 +234,7 @@ with tab_signup:
                     st.session_state["verification_code"] = None
                     st.session_state["temp_email"] = None
                     st.rerun()
+
 
                 
 st.markdown("""

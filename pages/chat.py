@@ -8,14 +8,18 @@ from streamlit_autorefresh import st_autorefresh
 from dotenv import load_dotenv 
 
 load_dotenv()
+
+def get_env_var(key):
+    return st.secrets[key] if key in st.secrets else os.getenv(key)
+
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        port=int(os.getenv("DB_PORT")),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME"),
-        ssl_ca=r"C:\ads_dashboard_project\ca.pem",  
+        host=get_env_var("DB_HOST"),
+        port=int(get_env_var("DB_PORT")),
+        user=get_env_var("DB_USER"),
+        password=get_env_var("DB_PASSWORD"),
+        database=get_env_var("DB_NAME"),
+        ssl_ca="certs/ca.pem",  # عدل هذا المسار إذا كان مكان الملف مختلف
         ssl_verify_cert=True
     )
 
@@ -110,19 +114,19 @@ def display_message(msg, current_user):
                     f"""
                     <div style="
                         margin-left: 40px; 
-                margin-bottom: 8px; 
-                background-color: #220033;  /* deep violet bg */
-                padding: 10px 15px; 
-                border-radius: 15px 15px 15px 0; 
-                max-width: 70%; 
-                font-size: 14px;
-                box-shadow: 0 2px 6px rgba(139, 233, 253, 0.5); /* cyan glow */
-                color: #8be9fd; /* neon cyan text */
-                font-family: 'Courier New', monospace;
-                ">
-                <b style='color:#bd93f9;'>{reply['name']}</b> 
-                <span style='font-size:10px; color:#ff79c6; margin-left: 10px;'>{reply['timestamp']}</span>
-                <div style="margin-top:5px; white-space: pre-wrap; color:#f8f8f2;">{reply['message']}</div>
+                        margin-bottom: 8px; 
+                        background-color: #220033;
+                        padding: 10px 15px; 
+                        border-radius: 15px 15px 15px 0; 
+                        max-width: 70%; 
+                        font-size: 14px;
+                        box-shadow: 0 2px 6px rgba(139, 233, 253, 0.5);
+                        color: #8be9fd;
+                        font-family: 'Courier New', monospace;
+                    ">
+                    <b style='color:#bd93f9;'>{reply['name']}</b> 
+                    <span style='font-size:10px; color:#ff79c6; margin-left: 10px;'>{reply['timestamp']}</span>
+                    <div style="margin-top:5px; white-space: pre-wrap; color:#f8f8f2;">{reply['message']}</div>
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -192,6 +196,7 @@ components.html("""
 if message_to_delete:
     delete_chat(message_to_delete)
     st.rerun()
+
 
 
 

@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 import mysql.connector
@@ -8,21 +9,24 @@ from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 import plotly.express as px
 import style
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
+# دوال لاستدعاء المتغيرات من st.secrets أو os.getenv
+def get_env_var(key):
+    return st.secrets[key] if key in st.secrets else os.getenv(key)
 
-conn = mysql.connector.connect(
-    host=os.getenv("DB_HOST"),
-    port=int(os.getenv("DB_PORT")),
-    user=os.getenv("DB_USER"),
-    password=os.getenv("DB_PASSWORD"),
-    database=os.getenv("DB_NAME"),
-    ssl_ca=r"C:\ads_dashboard_project\ca.pem",  
-    ssl_verify_cert=True
-)
+def get_db_connection():
+    return mysql.connector.connect(
+        host=get_env_var("DB_HOST"),
+        port=int(get_env_var("DB_PORT")),
+        user=get_env_var("DB_USER"),
+        password=get_env_var("DB_PASSWORD"),
+        database=get_env_var("DB_NAME"),
+        ssl_ca="certs/ca.pem",  # عدل المسار حسب مكان ملف الشهادة
+        ssl_verify_cert=True
+    )
 
+# إنشاء اتصال بقاعدة البيانات
+conn = get_db_connection()
 cursor = conn.cursor(dictionary=True)
 
 style.apply_custom_styles()
@@ -59,6 +63,7 @@ if "username" not in st.session_state:
 username = st.session_state["username"].lower()
 role = st.session_state.get("role", "").lower()
 
+# جلب المستخدمين المسموح لهم
 cursor.execute("SELECT * FROM users")
 users_data = cursor.fetchall()
 allowed_users = [u["username"] for u in users_data if u.get("admin") == username or u["username"] == username]
@@ -67,40 +72,39 @@ if username not in allowed_users:
     st.error("You are not allowed to access client data.")
     st.stop()
 
+# جلب بيانات العملاء
 cursor.execute("SELECT * FROM clients")
-df = pd.DataFrame(cursor.fetchall())
+clients = cursor.fetchall()
+df = pd.DataFrame(clients)
 
 if df.empty:
     st.warning("No client data found.")
     st.stop()
 
+# تنظيف وتحويل البيانات
 df["username"] = df["username"].astype(str).str.lower()
 df["city"] = df["city"].astype(str).str.strip().str.title()
 df["created_at"] = pd.to_datetime(df["created_at"], errors='coerce')
 df["lat"] = pd.to_numeric(df["lat"], errors='coerce')
 df["lon"] = pd.to_numeric(df["lon"], errors='coerce')
 
-missing_coords = df[df["lat"].isnull() | df["lon"].isnull()]
-if not missing_coords.empty:
+# معالجة الإحداثيات المفقودة
+missing_idx = df.index[df["lat"].isnull() | df["lon"].isnull()]
+
+if not missing_idx.empty:
     st.warning("Generating missing coordinates...")
     geolocator = Nominatim(user_agent="client_dashboard")
     geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
-    missing_coords["location"] = missing_coords["address"].astype(str) + ", " + missing_coords["city"].astype(str) + ", Morocco"
 
-    def safe_geocode(loc):
+    for idx in missing_idx:
+        location_str = f"{df.at[idx, 'address']}, {df.at[idx, 'city']}, Morocco"
         try:
-            return geocode(loc)
-        except:
-            return None
-
-    missing_coords["location_obj"] = missing_coords["location"].apply(safe_geocode)
-    missing_coords["lat"] = missing_coords["location_obj"].apply(lambda loc: loc.latitude if loc else None)
-    missing_coords["lon"] = missing_coords["location_obj"].apply(lambda loc: loc.longitude if loc else None)
-    missing_coords.drop(columns=["location", "location_obj"], inplace=True)
-
-    for idx, row in missing_coords.iterrows():
-        df.loc[idx, "lat"] = row["lat"]
-        df.loc[idx, "lon"] = row["lon"]
+            loc = geocode(location_str)
+            if loc:
+                df.at[idx, "lat"] = loc.latitude
+                df.at[idx, "lon"] = loc.longitude
+        except Exception as e:
+            st.error(f"Geocoding error at row {idx}: {e}")
 
 st.set_page_config(page_title="Client Management Dashboard", layout="wide")
 st.title("Client Management Dashboard")

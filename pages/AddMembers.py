@@ -4,17 +4,20 @@ import os
 from dotenv import load_dotenv 
 
 load_dotenv()
+
+def get_env_var(key):
+    return st.secrets[key] if key in st.secrets else os.getenv(key)
+
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        port=int(os.getenv("DB_PORT")),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME"),
-        ssl_ca=r"C:\ads_dashboard_project\ca.pem",  
+        host=get_env_var("DB_HOST"),
+        port=int(get_env_var("DB_PORT")),
+        user=get_env_var("DB_USER"),
+        password=get_env_var("DB_PASSWORD"),
+        database=get_env_var("DB_NAME"),
+        ssl_ca="certs/ca.pem",  # تأكد مسار ملف الشهادة صحيح
         ssl_verify_cert=True
     )
-
 
 def load_users():
     conn = get_db_connection()
@@ -61,7 +64,6 @@ def update_user_status(username, status):
     conn.commit()
     cursor.close()
     conn.close()
-
 
 if "username" not in st.session_state:
     st.warning("Please log in first.")
@@ -138,6 +140,7 @@ with tab3:
                         st.warning("Please confirm.")
     else:
         st.info("No users available to manage.")
+
 
 
 st.markdown("""

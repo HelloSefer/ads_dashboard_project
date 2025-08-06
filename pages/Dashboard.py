@@ -1,12 +1,201 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import time
 import mysql.connector
 import os
-from dotenv import load_dotenv 
+from dotenv import load_dotenv
 
 load_dotenv()
+
+def get_env_var(key):
+    return st.secrets[key] if key in st.secrets else os.getenv(key)
+
+def get_db_connection():
+    return mysql.connector.connect(
+        host=get_env_var("DB_HOST"),
+        port=int(get_env_var("DB_PORT")),
+        user=get_env_var("DB_USER"),
+        password=get_env_var("DB_PASSWORD"),
+        database=get_env_var("DB_NAME"),
+        ssl_ca="certs/ca.pem",  # عدل هذا المسار إذا كان مكان الملف مختلف
+        ssl_verify_cert=True
+    )
+
+if "username" not in st.session_state or "role" not in st.session_state:
+    st.warning("⚠ Please login from the Home page.")
+    st.stop()
+
+username = st.session_state["username"]
+role = st.session_state["role"]
+
+st.title("Ads Campaign Dashboard")
+
+if st.sidebar.button("Logout"):
+    st.session_state.clear()
+    st.experimental_rerun()  # بدل switch_page بـ rerun
+
+try:
+    conn = get_db_connection()
+    df = pd.read_sql("SELECT * FROM campaigns", conn)
+    conn.close()
+
+    df.columns = df.columns.str.strip()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce", infer_datetime_format=True)
+    df["sales"] = df["units_sold"] * df["price_per_unit"]
+    df = df.dropna(subset=["date"])
+except Exception as e:
+    st.error(f"Error loading data: {e}")
+    st.stop()
+
+if role == "admin":
+    try:
+        conn = get_db_connection()
+        users_df = pd.read_sql("SELECT username, admin FROM users", conn)
+        conn.close()
+
+        team_members = users_df[
+            (users_df["admin"] == username) | (users_df["username"] == username)
+        ]["username"].tolist()
+
+        st.sidebar.subheader("View by Member")
+        selected_user = st.sidebar.selectbox("Choose user", ["ALL"] + team_members)
+
+        if selected_user == "ALL":
+            df = df[df["username"].isin(team_members)]
+        else:
+            df = df[df["username"] == selected_user]
+    except Exception as e:
+        st.error(f"Error loading users: {e}")
+        st.stop()
+else:
+    df = df[df["username"] == username]
+
+if df.empty:
+    st.warning("No campaigns found for this user.")
+    st.stop()
+
+st.sidebar.header("Filters")
+platforms = st.sidebar.multiselect("Platform", df["platform"].unique(), default=list(df["platform"].unique()))
+campaigns = st.sidebar.multiselect("Campaign", df["campaign"].unique(), default=list(df["campaign"].unique()))
+
+min_date, max_date = df["date"].min(), df["date"].max()
+date_range = st.sidebar.date_input("Date Range", (min_date, max_date))
+start_date, end_date = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
+
+df_filtered = df[
+    (df["platform"].isin(platforms)) &
+    (df["campaign"].isin(campaigns)) &
+    (df["date"] >= start_date) & (df["date"] <= end_date)
+]
+
+if df_filtered.empty:
+    st.warning("⚠ No data found for your selection.")
+    st.stop()
+
+df_filtered["gross_income"] = df_filtered["sales"]
+df_filtered["total_cost"] = (
+    df_filtered["units_sold"] * df_filtered["product_cost"] +
+    df_filtered["delivery_cost"] +
+    df_filtered["ad_spend"]
+)
+df_filtered["net_profit"] = df_filtered["gross_income"] - df_filtered["total_cost"]
+df_filtered["roas"] = df_filtered.apply(lambda x: x["sales"] / x["ad_spend"] if x["ad_spend"] > 0 else 0, axis=1)
+df_filtered["profit_margin"] = df_filtered.apply(
+    lambda x: (x["net_profit"] / x["gross_income"] * 100) if x["gross_income"] > 0 else 0, axis=1
+)
+
+total_spend = df_filtered["ad_spend"].sum()
+total_sales = df_filtered["sales"].sum()
+total_clicks = df_filtered["clicks"].sum()
+roas = total_sales / total_spend if total_spend else 0
+net_profit = df_filtered["net_profit"].sum()
+
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.markdown(f"""<div class="kpi-box blue-border"><div class="kpi-title">Ad Spend</div><div class="kpi-value">${total_spend:,.2f}</div></div>""", unsafe_allow_html=True)
+with col2:
+    st.markdown(f"""<div class="kpi-box green-border"><div class="kpi-title">🛒 Sales</div><div class="kpi-value">${total_sales:,.2f}</div></div>""", unsafe_allow_html=True)
+with col3:
+    st.markdown(f"""<div class="kpi-box red-border"><div class="kpi-title">Clicks</div><div class="kpi-value">{total_clicks:,}</div></div>""", unsafe_allow_html=True)
+with col4:
+    st.markdown(f"""<div class="kpi-box blue-border"><div class="kpi-title">ROAS</div><div class="kpi-value">{roas:.2f}</div></div>""", unsafe_allow_html=True)
+
+col5, col6 = st.columns(2)
+with col5:
+    st.markdown(f"""<div class="kpi-box green-border"><div class="kpi-title">Net Profit</div><div class="kpi-value">${net_profit:,.2f}</div></div>""", unsafe_allow_html=True)
+with col6:
+    st.markdown(f"""<div class="kpi-box red-border"><div class="kpi-title">Avg. Profit Margin</div><div class="kpi-value">{df_filtered['profit_margin'].mean():.2f}%</div></div>""", unsafe_allow_html=True)
+
+best = df_filtered.loc[df_filtered["roas"].idxmax()]
+worst = df_filtered.loc[df_filtered["roas"].idxmin()]
+st.subheader("Best & Worst Campaigns by ROAS")
+st.markdown(f"**Best:** `{best['campaign']}` → **{best['roas']:.2f}**")
+st.markdown(f"**Worst:** `{worst['campaign']}` → **{worst['roas']:.2f}**")
+
+st.header("Performance Over Time by Platform")
+grouped = df_filtered.groupby(["date", "platform"])[["ad_spend", "sales"]].sum().reset_index()
+fig_line = px.line(
+    grouped,
+    x="date",
+    y=["ad_spend", "sales"],
+    color="platform",
+    markers=True,
+    line_shape="spline",
+    title="Ad Spend & Sales Over Time by Platform"
+)
+fig_line.update_layout(
+    xaxis_title="Date",
+    yaxis_title="Amount ($)",
+    template="plotly_dark",
+    legend_title="Metric",
+)
+st.plotly_chart(fig_line, use_container_width=True)
+
+st.header("Net Profit per Campaign")
+campaign_profit = df_filtered.groupby("campaign")["net_profit"].sum().reset_index()
+fig_bar = px.bar(
+    campaign_profit,
+    x="campaign",
+    y="net_profit",
+    color="net_profit",
+    title="Net Profit by Campaign",
+    color_continuous_scale="Tealrose"
+)
+fig_bar.update_layout(
+    xaxis_title="Campaign",
+    yaxis_title="Net Profit ($)",
+    template="plotly_dark"
+)
+st.plotly_chart(fig_bar, use_container_width=True)
+
+st.header("Gross Income vs Total Cost")
+df_income_cost = df_filtered.groupby("campaign")[["gross_income", "total_cost"]].sum().reset_index()
+fig_grouped = px.bar(
+    df_income_cost.melt(id_vars="campaign", value_vars=["gross_income", "total_cost"]),
+    x="campaign",
+    y="value",
+    color="variable",
+    barmode="group",
+    title="Gross Income vs Total Cost by Campaign",
+    color_discrete_map={"gross_income": "#00cec9", "total_cost": "#d63031"}
+)
+fig_grouped.update_layout(
+    xaxis_title="Campaign",
+    yaxis_title="Amount ($)",
+    template="plotly_dark"
+)
+st.plotly_chart(fig_grouped, use_container_width=True)
+
+st.header("Full Campaign Data Overview")
+st.dataframe(df_filtered.reset_index(drop=True), use_container_width=True)
+
+csv_final = df_filtered.to_csv(index=False).encode("utf-8")
+st.download_button("⬇ Download Final CSV", csv_final, "final_campaign_data.csv", "text/csv")
+
+
+
+
+
 def inject_custom_css():
    st.markdown("""
 <style>
@@ -113,188 +302,5 @@ st.markdown("""
 .kpi-value { font-size: 26px; font-weight: bold; color: #ffffff; }
 </style>
 """, unsafe_allow_html=True)
+
 inject_custom_css()
-def get_db_connection():
-    return mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        port=int(os.getenv("DB_PORT")),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME"),
-        ssl_ca=r"C:\ads_dashboard_project\ca.pem",  
-        ssl_verify_cert=True
-    )
-
-if "username" not in st.session_state or "role" not in st.session_state:
-    st.warning("⚠ Please login from the Home page.")
-    st.stop()
-
-username = st.session_state["username"]
-role = st.session_state["role"]
-
-st.title(" Ads Campaign Dashboard")
-
-if st.sidebar.button(" Logout"):
-    st.session_state.clear()
-    st.switch_page("Home.py")
-
-try:
-    conn = get_db_connection()
-    df = pd.read_sql("SELECT * FROM campaigns", conn)
-    conn.close()
-
-    df.columns = df.columns.str.strip()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce", infer_datetime_format=True)
-    df["sales"] = df["units_sold"] * df["price_per_unit"]
-    if df["date"].isnull().any():
-        df = df.dropna(subset=["date"])
-except Exception as e:
-    st.error(f" Error loading data: {e}")
-    st.stop()
-
-if role == "admin":
-    try:
-        conn = get_db_connection()
-        users_df = pd.read_sql("SELECT username, admin FROM users", conn)
-        conn.close()
-
-        team_members = users_df[
-            (users_df["admin"] == username) | (users_df["username"] == username)
-        ]["username"].tolist()
-
-        st.sidebar.subheader(" View by Member")
-        selected_user = st.sidebar.selectbox("Choose user", ["ALL"] + team_members)
-
-        if selected_user == "ALL":
-            df = df[df["username"].isin(team_members)]
-        else:
-            df = df[df["username"] == selected_user]
-    except Exception as e:
-        st.error(f" Error loading users: {e}")
-        st.stop()
-else:
-    df = df[df["username"] == username]
-
-if df.empty:
-    st.warning(" No campaigns found for this user.")
-    st.stop()
-
-st.sidebar.header(" Filters")
-platforms = st.sidebar.multiselect("Platform", df["platform"].unique(), default=df["platform"].unique())
-campaigns = st.sidebar.multiselect("Campaign", df["campaign"].unique(), default=df["campaign"].unique())
-
-if df["date"].notna().any():
-    min_date, max_date = df["date"].min(), df["date"].max()
-else:
-    st.warning("⚠ No valid dates available.")
-    st.stop()
-
-date_range = st.sidebar.date_input("Date Range", (min_date, max_date))
-start_date, end_date = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
-
-df_filtered = df[
-    (df["platform"].isin(platforms)) &
-    (df["campaign"].isin(campaigns)) &
-    (df["date"] >= start_date) & (df["date"] <= end_date)
-]
-
-if df_filtered.empty:
-    st.warning("⚠ No data found for your selection.")
-    st.stop()
-
-df_filtered["gross_income"] = df_filtered["sales"]
-df_filtered["total_cost"] = (
-    (df_filtered["units_sold"] * df_filtered["product_cost"]) +
-    df_filtered["delivery_cost"] +
-    df_filtered["ad_spend"]
-)
-df_filtered["net_profit"] = df_filtered["gross_income"] - df_filtered["total_cost"]
-df_filtered["roas"] = df_filtered.apply(lambda x: x["sales"] / x["ad_spend"] if x["ad_spend"] > 0 else 0, axis=1)
-df_filtered["profit_margin"] = df_filtered.apply(lambda x: (x["net_profit"] / x["gross_income"] * 100) if x["gross_income"] > 0 else 0, axis=1)
-
-total_spend = df_filtered["ad_spend"].sum()
-total_sales = df_filtered["sales"].sum()
-total_clicks = df_filtered["clicks"].sum()
-roas = total_sales / total_spend if total_spend else 0
-net_profit = df_filtered["net_profit"].sum()
-
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.markdown(f"""<div class="kpi-box blue-border"><div class="kpi-title">Ad Spend</div><div class="kpi-value">${total_spend:,.2f}</div></div>""", unsafe_allow_html=True)
-with col2:
-    st.markdown(f"""<div class="kpi-box green-border"><div class="kpi-title">🛒 Sales</div><div class="kpi-value">${total_sales:,.2f}</div></div>""", unsafe_allow_html=True)
-with col3:
-    st.markdown(f"""<div class="kpi-box red-border"><div class="kpi-title">Clicks</div><div class="kpi-value">{total_clicks:,}</div></div>""", unsafe_allow_html=True)
-with col4:
-    st.markdown(f"""<div class="kpi-box blue-border"><div class="kpi-title">ROAS</div><div class="kpi-value">{roas:.2f}</div></div>""", unsafe_allow_html=True)
-
-col5, col6 = st.columns(2)
-with col5:
-    st.markdown(f"""<div class="kpi-box green-border"><div class="kpi-title">Net Profit</div><div class="kpi-value">${net_profit:,.2f}</div></div>""", unsafe_allow_html=True)
-with col6:
-    st.markdown(f"""<div class="kpi-box red-border"><div class="kpi-title">Avg. Profit Margin</div><div class="kpi-value">{df_filtered['profit_margin'].mean():.2f}%</div></div>""", unsafe_allow_html=True)
-
-best = df_filtered.loc[df_filtered["roas"].idxmax()]
-worst = df_filtered.loc[df_filtered["roas"].idxmin()]
-st.subheader(" Best & Worst Campaigns by ROAS")
-st.markdown(f"**Best:** `{best['campaign']}` → **{best['roas']:.2f}**")
-st.markdown(f"**Worst:** `{worst['campaign']}` → **{worst['roas']:.2f}**")
-
-st.header(" Performance Over Time by Platform")
-grouped = df_filtered.groupby(["date", "platform"])[["ad_spend", "sales"]].sum().reset_index()
-fig_line = px.line(
-    grouped,
-    x="date",
-    y=["ad_spend", "sales"],
-    color="platform",
-    markers=True,
-    line_shape="spline",
-    title="Ad Spend & Sales Over Time by Platform"
-)
-fig_line.update_layout(
-    xaxis_title="Date",
-    yaxis_title="Amount ($)",
-    template="plotly_dark",
-    legend_title="Metric",
-)
-st.plotly_chart(fig_line, use_container_width=True)
-
-st.header("Net Profit per Campaign")
-campaign_profit = df_filtered.groupby("campaign")["net_profit"].sum().reset_index()
-fig_bar = px.bar(
-    campaign_profit,
-    x="campaign",
-    y="net_profit",
-    color="net_profit",
-    title="Net Profit by Campaign",
-    color_continuous_scale="Tealrose"
-)
-fig_bar.update_layout(
-    xaxis_title="Campaign",
-    yaxis_title="Net Profit ($)",
-    template="plotly_dark"
-)
-st.plotly_chart(fig_bar, use_container_width=True)
-
-st.header(" Gross Income vs Total Cost")
-df_income_cost = df_filtered.groupby("campaign")[["gross_income", "total_cost"]].sum().reset_index()
-fig_grouped = px.bar(
-    df_income_cost.melt(id_vars="campaign", value_vars=["gross_income", "total_cost"]),
-    x="campaign",
-    y="value",
-    color="variable",
-    barmode="group",
-    title="Gross Income vs Total Cost by Campaign",
-    color_discrete_map={"gross_income": "#00cec9", "total_cost": "#d63031"}
-)
-fig_grouped.update_layout(
-    xaxis_title="Campaign",
-    yaxis_title="Amount ($)",
-    template="plotly_dark"
-)
-st.plotly_chart(fig_grouped, use_container_width=True)
-
-st.header("Full Campaign Data Overview")
-st.dataframe(df_filtered.reset_index(drop=True), use_container_width=True)
-csv_final = df_filtered.to_csv(index=False).encode("utf-8")
-st.download_button("⬇ Download Final CSV", csv_final, "final_campaign_data.csv", "text/csv")

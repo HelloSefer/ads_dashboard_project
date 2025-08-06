@@ -10,12 +10,13 @@ load_dotenv()
 def get_db_connection():
     return mysql.connector.connect(
         host=os.getenv("DB_HOST"),
+        port=int(os.getenv("DB_PORT")),
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
         database=os.getenv("DB_NAME"),
-        port=int(os.getenv("DB_PORT", 3306))  # default 3306 if not found
+        ssl_ca=r"C:\ads_dashboard_project\ca.pem",  
+        ssl_verify_cert=True
     )
-
 # ✅ Brevo API setup
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")  
 SENDER_EMAIL = "oussamabillionaire599@gmail.com"
@@ -93,7 +94,7 @@ def update_user_password(email, new_password):
 
 
 st.set_page_config(page_title="ANA9A STORE", initial_sidebar_state="collapsed")
-st.markdown('<div class="title-fire">🔥EcoDashboard🔥</div>', unsafe_allow_html=True)
+st.markdown('<div class="title-fire">🔥 ANA9A STORE 🔥</div>', unsafe_allow_html=True)
 
 tab_login, tab_signup = st.tabs(["Login", "Create New Account"])
 

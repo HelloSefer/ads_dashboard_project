@@ -114,14 +114,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 inject_custom_css()
-
 def get_db_connection():
     return mysql.connector.connect(
         host=os.getenv("DB_HOST"),
+        port=int(os.getenv("DB_PORT")),
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
         database=os.getenv("DB_NAME"),
-        port=int(os.getenv("DB_PORT", 3306))  # default 3306 if not found
+        ssl_ca=r"C:\ads_dashboard_project\ca.pem",  
+        ssl_verify_cert=True
     )
 
 if "username" not in st.session_state or "role" not in st.session_state:

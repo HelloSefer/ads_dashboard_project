@@ -14,14 +14,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 conn = mysql.connector.connect(
-    host=os.getenv("DB_HOST", "localhost"),
-    user=os.getenv("DB_USER", "root"),
+    host=os.getenv("DB_HOST"),
+    port=int(os.getenv("DB_PORT")),
+    user=os.getenv("DB_USER"),
     password=os.getenv("DB_PASSWORD"),
     database=os.getenv("DB_NAME"),
-    port=int(os.getenv("DB_PORT", 3306))
+    ssl_ca=r"C:\ads_dashboard_project\ca.pem",  
+    ssl_verify_cert=True
 )
-cursor = conn.cursor(dictionary=True)
 
+cursor = conn.cursor(dictionary=True)
 
 style.apply_custom_styles()
 
@@ -223,8 +225,11 @@ def generate_pdf(dataframe):
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=10)
     pdf.set_font("Arial", size=6)
+
+    # حذف الأعمدة غير الضرورية
     dataframe = dataframe.drop(columns=["user_id", "lat", "lon"], errors="ignore")
 
+    # تحديد عرض الأعمدة
     col_widths = {
         "username": 22, "full_name": 32, "gender": 12, "age": 10,
         "city": 20, "address": 40, "phone": 28, "email": 40,
@@ -233,17 +238,22 @@ def generate_pdf(dataframe):
     }
 
     headers = list(dataframe.columns)
+
+    # رؤوس الأعمدة
     for col in headers:
         pdf.cell(col_widths.get(col, 20), 8, str(col), border=1, align='C')
     pdf.ln()
 
+    # محتوى الصفوف
     for _, row in dataframe.iterrows():
         for col in headers:
             text = str(row[col])
             pdf.cell(col_widths.get(col, 20), 7, text, border=1, align='C')
         pdf.ln()
 
-    return bytes(pdf.output(dest='S'))
+    # تحويل إلى بايت باستخدام encoding المناسب
+    return pdf.output(dest='S').encode('latin1')
+
 
 st.subheader("⬇ Download Client Data")
 csv_data = filtered_df.drop(columns=["user_id", "lat", "lon"], errors="ignore").to_csv(index=False).encode("utf-8")

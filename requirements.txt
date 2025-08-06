@@ -1,0 +1,11 @@
+streamlit
+pandas
+plotly
+mysql-connector-python
+folium
+streamlit-folium
+fpdf
+geopy
+sib-api-v3-sdk
+python-dotenv
+streamlit-autorefresh

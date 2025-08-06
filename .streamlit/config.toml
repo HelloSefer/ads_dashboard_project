@@ -1,0 +1,18 @@
+[server]
+headless = true
+enableCORS=false
+port = 8501
+enableXsrfProtection = false
+
+[theme]
+base = "dark"
+
+[browser]
+gatherUsageStats = false
+
+# Hide the hamburger menu and footer by default
+# But since we want to show sidebar *only* after login, this is just to start hidden
+# (You can toggle sidebar visibility in your app code)
+hideSidebarNav = true
+plotly
+
